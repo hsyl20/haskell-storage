@@ -6,6 +6,7 @@ module Data.Storage.Storage
    , initStorage
    , readObject
    , writeObject
+   , modifyObject
    )
 where
 
@@ -47,24 +48,25 @@ deriveSafeCopy 1 'base ''Ref
 instance Show (Ref a) where
    show (Ref (ObjectHash hash)) = "ref-" ++ showDigest hash
 
-
+-- | A storage
 data Storage = Storage
    { storagePath :: FilePath
    }
 
-
+-- | Initialize a storage
 initStorage :: FilePath -> IO Storage
 initStorage path = do
    createDirectoryIfMissing True path
    createDirectoryIfMissing True (path </> "objects")
    return (Storage path)
 
+
+-- | Compute the object path
 computePath :: ObjectHash -> FilePath
 computePath (ObjectHash hash) = "objects" </> showDigest hash
 
 
-
-
+-- | Read an object from the storage
 readObject :: SafeCopy a => Storage -> Ref a -> IO a
 readObject storage (Ref hash) = do
 
@@ -78,6 +80,7 @@ readObject storage (Ref hash) = do
       Right v  -> return v
 
 
+-- | Write an object into the storage
 writeObject :: SafeCopy a => Storage -> a -> IO (Ref a)
 writeObject storage obj = do
 
@@ -89,3 +92,8 @@ writeObject storage obj = do
 
    return (Ref hash)
 
+-- | Modify an object, store the new one and return its reference
+modifyObject :: SafeCopy a => Storage -> (a -> a) -> Ref a -> IO (Ref a)
+modifyObject storage f ref = do
+   obj <- readObject storage ref
+   writeObject storage (f obj)
