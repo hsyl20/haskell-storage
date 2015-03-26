@@ -7,6 +7,8 @@ module Data.Storage.Storage
    , readObject
    , writeObject
    , modifyObject
+   , withStorage
+   , (-->)
    )
 where
 
@@ -19,7 +21,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import System.FilePath
 import System.Directory
-import Control.Monad (when)
+import Control.Monad.State
 import Control.Applicative ((<$>))
 import Data.Int
 
@@ -97,3 +99,15 @@ modifyObject :: SafeCopy a => Storage -> (a -> a) -> Ref a -> IO (Ref a)
 modifyObject storage f ref = do
    obj <- readObject storage ref
    writeObject storage (f obj)
+
+type S a = StateT Storage IO a
+
+withStorage :: Storage -> S a -> IO a
+withStorage s st = evalStateT st s
+
+
+(-->) :: SafeCopy a => S b -> (b -> Ref a) -> S a
+(-->) b f = do
+   s <- get
+   b' <- b
+   lift $ readObject s (f b')

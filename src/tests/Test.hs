@@ -3,6 +3,7 @@
 import Data.Storage.Storage
 import Data.SafeCopy
 import Data.Word
+import Control.Applicative (pure)
 
 data MyObject = MyObject
    { field0 :: Word64
@@ -17,6 +18,15 @@ data MyRefObject = MyRefObject
    } deriving (Show)
 
 deriveSafeCopy 1 'base ''MyRefObject
+
+data MyRefObject2 = MyRefObject2
+   { field4 :: Int
+   , field5 :: Ref MyRefObject
+   } deriving (Show)
+
+deriveSafeCopy 1 'base ''MyRefObject2
+
+
 
 main :: IO ()
 main = do
@@ -34,3 +44,15 @@ main = do
    putStrLn ("Reference: " ++ show ref2)
    obj4 <- readObject s ref2
    putStrLn (show obj4)
+
+   let obj5 = MyRefObject2 5 ref2
+   putStrLn (show obj5)
+   ref3 <- writeObject s obj5
+   putStrLn ("Reference: " ++ show ref3)
+   obj6 <- readObject s ref3
+   putStrLn (show obj6)
+
+   r <- withStorage s $ do
+      pure obj6 --> field5 --> field3
+
+   putStrLn (show r)

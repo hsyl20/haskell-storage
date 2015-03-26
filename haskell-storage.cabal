@@ -34,7 +34,9 @@ library
       cereal ==0.4.*,
       filepath == 1.3.*,
       directory == 1.2.*,
-      binary ==0.7.*
+      binary ==0.7.*,
+      mtl ==2.1.*,
+      transformers ==0.3.*
 
 executable test
   main-is: Test.hs
