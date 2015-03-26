@@ -24,6 +24,7 @@ import System.Directory
 import Control.Monad.State
 import Control.Applicative ((<$>))
 import Data.Int
+import qualified Control.Category as C
 
 -- | Object identifier
 newtype ObjectHash = ObjectHash (Digest SHA256State) deriving (Eq)
@@ -111,3 +112,40 @@ withStorage s st = evalStateT st s
    s <- get
    b' <- b
    lift $ readObject s (f b')
+
+
+data Store m s a = Store (s -> m a) (m s)
+data MonadicLens m s a = MonadicLens (s -> Store m a s)
+
+refLens :: SafeCopy a => MonadicLens (StateT Storage IO) (Ref a) a
+refLens = MonadicLens (\ref -> Store (putObj ref) (getObj ref))
+   where
+      putObj ref obj = do
+         s <- get
+         lift $ writeObject s obj
+      getObj ref = do
+         s <- get
+         lift $ readObject s ref
+
+
+instance Monad m => C.Category (MonadicLens m) where
+   id = MonadicLens (\s -> Store (const (return s)) (return s))
+
+   (.) (MonadicLens f) (MonadicLens g) = ret
+         where
+            ret = MonadicLens (\a -> Store (pt a) (gt a)) -- :: MonadicLens m a c
+
+            --gt :: a -> m c
+            gt a = do
+               let (Store _ gb) = g a
+               b <- gb
+               let (Store _ gc) = f b
+               gc
+
+            --pt :: a -> c -> m a
+            pt a c = do
+               let (Store pb gb) = g a
+               b <- gb
+               let (Store pc gc) = f b
+               b' <- pc c
+               pb b'
