@@ -1,151 +1,128 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE LambdaCase #-}
 module Data.Storage.Storage
-   ( ObjectHash
-   , Ref
-   , Storage
-   , initStorage
-   , readObject
-   , writeObject
+   ( Ref
+   , retrieveObject
+   , storeObject
    , modifyObject
-   , withStorage
-   , (-->)
+   , tagObjectRef
+   , retrieveTag
+   , retrieveObjectFromTag
+   , markObjectRef
+   , retrieveCurrentMarker
+   , retrieveMarker
+   , retrieveCurrentMarkerObject
+   , retrieveMarkerObject
+   , deleteMarker
    )
 where
 
-import Data.Digest.Pure.SHA
+import Data.Time.Clock.POSIX (getPOSIXTime, POSIXTime)
 import Data.SafeCopy
 import Data.Serialize.Get
 import Data.Serialize.Put
-import Data.Binary (encode,decode)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as LBS
-import System.FilePath
-import System.Directory
-import Control.Monad.State
-import Control.Applicative ((<$>))
-import Data.Int
-import qualified Control.Category as C
 
--- | Object identifier
-newtype ObjectHash = ObjectHash (Digest SHA256State) deriving (Eq)
-
-makeHash :: BS.ByteString -> ObjectHash
-makeHash = ObjectHash . sha256 . LBS.fromStrict
-
-sizeOfHash :: Int64
-sizeOfHash = LBS.length (encode hash)
-   where
-      ObjectHash hash = makeHash BS.empty
-
-instance SafeCopy ObjectHash where
-   putCopy (ObjectHash hash) = contain $ putLazyByteString (encode hash)
-   getCopy                   = contain $ (ObjectHash . decode <$> getLazyByteString sizeOfHash)
-   version = 1
-   kind = base
+import Data.Storage.Blob
+import Data.Storage.DataBase
 
 -- | Reference to another object
-newtype Ref a = Ref ObjectHash deriving (Eq)
+newtype Ref a = Ref Hash deriving (Eq)
 
 deriveSafeCopy 1 'base ''Ref
 
 instance Show (Ref a) where
-   show (Ref (ObjectHash hash)) = "ref-" ++ showDigest hash
-
--- | A storage
-data Storage = Storage
-   { storagePath :: FilePath
-   }
-
--- | Initialize a storage
-initStorage :: FilePath -> IO Storage
-initStorage path = do
-   createDirectoryIfMissing True path
-   createDirectoryIfMissing True (path </> "objects")
-   return (Storage path)
-
-
--- | Compute the object path
-computePath :: ObjectHash -> FilePath
-computePath (ObjectHash hash) = "objects" </> showDigest hash
+   show (Ref hash) = "ref-" ++ show hash
 
 
 -- | Read an object from the storage
-readObject :: SafeCopy a => Storage -> Ref a -> IO a
-readObject storage (Ref hash) = do
+retrieveObject :: (SafeCopy a, DataBase db) => db -> Ref a -> IO a
+retrieveObject db (Ref hash) = do
 
-   bs <- BS.readFile (storagePath storage </> computePath hash)
-
-   when (makeHash bs /= hash) $
-      error "readObject: file has been altered (invalid hash)"
-
-   case runGet safeGet bs of
-      Left err -> error (show err)
-      Right v  -> return v
+   retrieveBlob db hash >>= \case
+      RetrieveError err  -> error err
+      RetrieveSuccess bs -> do
+         case runGet safeGet bs of
+            Left err -> error (show err)
+            Right v  -> return v
 
 
 -- | Write an object into the storage
-writeObject :: SafeCopy a => Storage -> a -> IO (Ref a)
-writeObject storage obj = do
+storeObject :: (SafeCopy a, DataBase db) => db -> a -> IO (Ref a)
+storeObject db obj = do
+   let bs = runPut (safePut obj)
 
-   let 
-      bs   = runPut (safePut obj)
-      hash = makeHash bs
-
-   BS.writeFile (storagePath storage </> computePath hash) bs
-
-   return (Ref hash)
+   storeBlob db bs >>= \case
+      StoreError err    -> error err
+      StoreSuccess hash -> return (Ref hash)
 
 -- | Modify an object, store the new one and return its reference
-modifyObject :: SafeCopy a => Storage -> (a -> a) -> Ref a -> IO (Ref a)
-modifyObject storage f ref = do
-   obj <- readObject storage ref
-   writeObject storage (f obj)
+modifyObject :: (DataBase db, SafeCopy a) => db -> (a -> a) -> Ref a -> IO (Ref a)
+modifyObject db f ref = do
+   obj <- retrieveObject db ref
+   storeObject db (f obj)
 
-type S a = StateT Storage IO a
+-- | Tag an object reference
+tagObjectRef :: DataBase db => db -> String -> Ref a -> IO ()
+tagObjectRef db tag (Ref hash) = do
+   res <- setTag db tag hash
+   case res of
+      SetTagError err -> error err
+      SetTagSuccess   -> return ()
 
-withStorage :: Storage -> S a -> IO a
-withStorage s st = evalStateT st s
+-- | Retrieve a tag
+retrieveTag :: DataBase db => db -> String -> IO (Maybe (Ref a))
+retrieveTag db tag = do
+   res <- getTag db tag
+   case res of
+      GetTagSuccess hash -> return (Just (Ref hash))
+      GetTagError _      -> return Nothing
 
+-- | Retrieve the object associated to a tag
+retrieveObjectFromTag :: (SafeCopy a, DataBase db) => db -> String -> IO (Maybe a)
+retrieveObjectFromTag db tag = do
+   ref <- retrieveTag db tag
+   traverse (retrieveObject db) ref
 
-(-->) :: SafeCopy a => S b -> (b -> Ref a) -> S a
-(-->) b f = do
-   s <- get
-   b' <- b
-   lift $ readObject s (f b')
+-- | Add a marker to an object
+markObjectRef :: DataBase db => db -> String -> Ref a -> IO ()
+markObjectRef db marker (Ref hash) = do
+   time <- round <$> getPOSIXTime
+   res <- setMarker db marker time hash
+   case res of
+      SetMarkerError err -> error err
+      SetMarkerSuccess   -> return ()
 
+-- | Retrieve the current marker
+retrieveCurrentMarker :: DataBase db => db -> String -> IO (Maybe (Ref a))
+retrieveCurrentMarker db marker = do
+   time <- getPOSIXTime
+   retrieveMarker db marker time
 
-data Store m s a = Store (s -> m a) (m s)
-data MonadicLens m s a = MonadicLens (s -> Store m a s)
+-- | Retrieve the marker at the given time
+retrieveMarker :: DataBase db => db -> String -> POSIXTime -> IO (Maybe (Ref a))
+retrieveMarker db marker time = do
+   res <- getMarker db marker (round time)
+   case res of
+      GetMarkerSuccess _ hash -> return (Just (Ref hash))
+      GetMarkerError _      -> return Nothing
 
-refLens :: SafeCopy a => MonadicLens (StateT Storage IO) (Ref a) a
-refLens = MonadicLens (\ref -> Store (putObj ref) (getObj ref))
-   where
-      putObj ref obj = do
-         s <- get
-         lift $ writeObject s obj
-      getObj ref = do
-         s <- get
-         lift $ readObject s ref
+-- | Retrieve the object associated to a marker at the given time
+retrieveMarkerObject :: (SafeCopy a, DataBase db) => db -> String -> POSIXTime -> IO (Maybe a)
+retrieveMarkerObject db marker time = do
+   ref <- retrieveMarker db marker time
+   traverse (retrieveObject db) ref
 
+-- | Retrieve the current object associated to a marker
+retrieveCurrentMarkerObject :: (SafeCopy a, DataBase db) => db -> String -> IO (Maybe a)
+retrieveCurrentMarkerObject db marker = do
+   ref <- retrieveCurrentMarker db marker
+   traverse (retrieveObject db) ref
 
-instance Monad m => C.Category (MonadicLens m) where
-   id = MonadicLens (\s -> Store (const (return s)) (return s))
-
-   (.) (MonadicLens f) (MonadicLens g) = ret
-         where
-            ret = MonadicLens (\a -> Store (pt a) (gt a)) -- :: MonadicLens m a c
-
-            --gt :: a -> m c
-            gt a = do
-               let (Store _ gb) = g a
-               b <- gb
-               let (Store _ gc) = f b
-               gc
-
-            --pt :: a -> c -> m a
-            pt a c = do
-               let (Store pb gb) = g a
-               b <- gb
-               let (Store pc gc) = f b
-               b' <- pc c
-               pb b'
+-- | Delete a marker
+deleteMarker :: DataBase db => db -> String -> IO ()
+deleteMarker db marker = do
+   time <- round <$> getPOSIXTime
+   res <- removeMarker db marker time
+   case res of
+      SetMarkerError err -> error err
+      SetMarkerSuccess   -> return ()
