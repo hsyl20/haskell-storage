@@ -7,6 +7,7 @@ import Data.Storage.FileDB
 import Data.SafeCopy
 import Data.Word
 import Data.Foldable (traverse_)
+import Control.Monad (when)
 
 data Gender = Male | Female deriving (Show,Eq)
 
@@ -20,10 +21,6 @@ data Person = Person
 
 deriveSafeCopy 1 'base ''Person
 
--------------------------------------------------------------
--- Our office is getting larger! We can have several workers now!
---
--- We keep the old structure to be able to update from the old database!
 data Office_V1 = Office_V1
    { officeV1Name   :: String
    , officeV1Boss   :: Ref Person
@@ -32,22 +29,18 @@ data Office_V1 = Office_V1
 
 deriveSafeCopy 1 'base ''Office_V1
 
--- Here is our new data structure
 data Office = Office
    { officeName    :: String
    , officeBoss    :: Ref Person
    , officeWorkers :: [Ref Person]
    } deriving (Show)
 
--- It is now an extension of the old one
 deriveSafeCopy 2 'extension ''Office
 
--- And here is how we convert between the old one and the new one
 instance Migrate Office where
    type MigrateFrom Office = Office_V1
    migrate old = Office (officeV1Name old) (officeV1Boss old) [officeV1Worker old]
 
--------------------------------------------------------------
 
 
 main :: IO ()
@@ -60,11 +53,20 @@ main = do
          putStrLn $ "Found current office with name " ++ officeName office ++ "!"
          boss   <- retrieveObject db (officeBoss office)
          putStrLn $ "  - Office boss: " ++ show boss
-         -----------------------------------------------
          putStrLn $ "  - Office workers: "
          workers <- traverse (retrieveObject db) (officeWorkers office)
          traverse_ (\w -> putStrLn $ "      * " ++ show w) workers
-         -----------------------------------------------
+         ---------------------------------------------
+         -- Add Angela if she's not already included!
+         when ("Angela" `notElem` fmap personName workers) $ do
+            putStrLn "We forgot Angela! We add her. Restart to see the change"
+            -- store Angela
+            angelaRef <- storeObject db (Person 37 "Angela" Female)
+            -- store the new office
+            newOfficeRef <- storeObject db (office { officeWorkers = angelaRef : officeWorkers office })
+            -- update the marker
+            markObjectRef db "current" newOfficeRef
+
 
       Nothing     -> do
          putStrLn "We create a new office! Restart the app the see it"
@@ -73,12 +75,10 @@ main = do
          let boss = Person 40 "Michael" Male
          bossRef <- storeObject db boss
 
-         -----------------------------------------------------------------
          let workers = [Person 34 "Jim" Male, Person 32 "Pam" Female, Person 36 "Dwight" Male]
          workerRefs <- traverse (storeObject db) workers
 
          let office = Office "Scranton" bossRef workerRefs
-         -----------------------------------------------------------------
 
          officeRef <- storeObject db office
 
