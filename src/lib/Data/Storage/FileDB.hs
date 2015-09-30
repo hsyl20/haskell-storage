@@ -98,7 +98,14 @@ fdbRemoveMarker db marker date = do
 -- | Get a marker
 fdbGetMarker :: FileDB -> String -> DateTime -> IO GetMarkerResult
 fdbGetMarker db marker date =
-   bracket (openBinaryFile f ReadMode) hClose (readLoop 0)
+   catch 
+      (bracket (openBinaryFile f ReadMode) hClose 
+         (\h -> do
+            fsize <- hFileSize h
+            if fsize == 0
+               then return $ GetMarkerError ("Marker \"" ++ marker ++ "\" not found")
+               else readLoop 1 h))
+      (\(_ :: IOException) ->  return $ GetMarkerError ("Marker \"" ++ marker ++ "\" not found"))
 
    where 
       f = (dbPath db </> "markers" </> marker)
@@ -111,10 +118,10 @@ fdbGetMarker db marker date =
 
       -- try to read the marker, starting from the end of the file
       readLoop n h = do
-         hSeek h SeekFromEnd n
+         hSeek h SeekFromEnd (-1 * n * fromIntegral recSize)
          markerDate <- decodeDate <$> BS.hGet h (fromIntegral dateSize)
          if markerDate > date
-            then readLoop (n + fromIntegral recSize + fromIntegral dateSize) h
+            then readLoop (n + 1) h
             else do
                markerHashRaw <- BS.hGet h (fromIntegral hashSize)
                if markerHashRaw == emptyHash

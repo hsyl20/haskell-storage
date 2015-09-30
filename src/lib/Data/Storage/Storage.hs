@@ -11,8 +11,8 @@ module Data.Storage.Storage
    , markObjectRef
    , retrieveCurrentMarker
    , retrieveMarker
-   , retrieveCurrentMarkerObject
-   , retrieveMarkerObject
+   , retrieveObjectFromCurrentMark
+   , retrieveObjectFromMark
    , deleteMarker
    )
 where
@@ -107,14 +107,14 @@ retrieveMarker db marker time = do
       GetMarkerError _      -> return Nothing
 
 -- | Retrieve the object associated to a marker at the given time
-retrieveMarkerObject :: (SafeCopy a, DataBase db) => db -> String -> POSIXTime -> IO (Maybe a)
-retrieveMarkerObject db marker time = do
+retrieveObjectFromMark :: (SafeCopy a, DataBase db) => db -> String -> POSIXTime -> IO (Maybe a)
+retrieveObjectFromMark db marker time = do
    ref <- retrieveMarker db marker time
    traverse (retrieveObject db) ref
 
 -- | Retrieve the current object associated to a marker
-retrieveCurrentMarkerObject :: (SafeCopy a, DataBase db) => db -> String -> IO (Maybe a)
-retrieveCurrentMarkerObject db marker = do
+retrieveObjectFromCurrentMark :: (SafeCopy a, DataBase db) => db -> String -> IO (Maybe a)
+retrieveObjectFromCurrentMark db marker = do
    ref <- retrieveCurrentMarker db marker
    traverse (retrieveObject db) ref
 
