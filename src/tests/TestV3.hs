@@ -79,7 +79,6 @@ main = do
          workerRefs <- traverse (storeObject db) workers
 
          let office = Office "Scranton" bossRef workerRefs
-
          officeRef <- storeObject db office
 
          -- put a marker on the office

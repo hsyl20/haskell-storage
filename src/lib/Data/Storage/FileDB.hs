@@ -53,7 +53,7 @@ writeNewFile f bs = bracket (openBinaryFile f WriteMode) hClose
 fdbStoreBlob :: FileDB -> Blob -> IO (StoreResult Hash)
 fdbStoreBlob db bs = do
    let hash = computeHash bs
-   BS.writeFile (dbPath db </> computeObjectPath hash) bs
+   _ <- writeNewFile (dbPath db </> computeObjectPath hash) bs
    return (StoreSuccess hash)
 
 fdbRetrieveBlob :: FileDB -> Hash -> IO (RetrieveResult Blob)

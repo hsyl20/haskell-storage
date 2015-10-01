@@ -41,6 +41,8 @@ main = do
          putStrLn $ "  - Office worker: " ++ show worker
 
       Nothing     -> do
+         putStrLn "We create a new office! Restart the app the see it"
+
          -- create a office with a boss and a single employee
          let boss = Person 40 "Michael" Male
          bossRef <- storeObject db boss
@@ -49,7 +51,6 @@ main = do
          workerRef <- storeObject db worker
 
          let office = Office "Scranton" bossRef workerRef
-
          officeRef <- storeObject db office
 
          -- put a marker on the office

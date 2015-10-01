@@ -25,7 +25,9 @@ import Data.Serialize.Put
 import Data.Storage.Blob
 import Data.Storage.DataBase
 
--- | Reference to another object
+-- | Reference to an object
+--
+-- The phantom type `a` is used to correctly read the object from the database
 newtype Ref a = Ref Hash deriving (Eq)
 
 deriveSafeCopy 1 'base ''Ref

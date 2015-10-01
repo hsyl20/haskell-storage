@@ -3,8 +3,6 @@
 
 name:                haskell-storage
 version:             0.1.0.0
--- synopsis:            
--- description:         
 license:             LGPL-3
 license-file:        LICENSE
 author:              Sylvain Henry
@@ -14,6 +12,22 @@ category:            Data
 build-type:          Simple
 extra-source-files:  README.md
 cabal-version:       >=1.10
+synopsis:            Functional native data storage
+description:         
+   This package provides a functional native Haskell data storage. It is
+   /functional/ because you can only add data into the store, data already
+   stored are immutable.
+   .
+   The current backend stores data in files very much like what Git does (with
+   binary blobs and hashes).
+   .
+   /Tags/ are immutable labels that can be assigned to objects. /Markers/ are
+   labels that can change over time: for each marker, the database keeps the
+   history of the successive referenced objects with the dates of the changes.
+   .
+   This package uses SafeCopy to make it easier to make data structures evolve:
+   pure data structure modifications are handled almost transparently by
+   SafeCopy.
 
 library
   hs-source-dirs:      src/lib
